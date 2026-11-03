@@ -4,10 +4,10 @@ import { ApiError, conversationsApi as api, loadHistory, uid, type ChatPayload, 
 type Pending = {cid:string;rid:string;payload:ChatPayload};
 const reason=(exc:unknown)=>exc instanceof Error?exc.message:'服务暂不可用，请重试';
 function loadUi() {
-  try{return JSON.parse(localStorage.getItem('jc.ui.v2')||'{}');}catch{return {};}
+  try{const value=JSON.parse(localStorage.getItem('jc.ui.v2')||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}
 }
 
-export function useConversations() {
+export function useConversations(defaultMode:Mode='rag', confirm:(message:string)=>Promise<boolean>=async message=>window.confirm(message)) {
   const [initial]=useState(loadUi);
   const [legacy]=useState(loadHistory);
   const [conversations,setConversations]=useState<ServerConversation[]>([]);
@@ -15,7 +15,9 @@ export function useConversations() {
   const [active,setActive]=useState<string|null>(typeof initial.active==='string'?initial.active:null);
   const activeRef=useRef(active);activeRef.current=active;
   const [draft,setDraft]=useState(typeof initial.draft==='string'?initial.draft:'');
-  const [mode,setMode]=useState<Mode>(initial.mode==='chat'?'chat':'rag');
+  const [mode,setMode]=useState<Mode>(initial.mode==='chat'?'chat':initial.mode==='rag'?'rag':defaultMode);
+  const [documentIds,setDocumentIds]=useState<string[]|null>(null);
+  const createdHere=useRef<string|null>(null);
   const [page,setPage]=useState<HistoryPage|null>(null);
   const [pending,setPending]=useState<Pending|null>(initial.pending?.cid&&initial.pending?.rid&&initial.pending?.payload?.user_input?initial.pending:null);
   const [sending,setSending]=useState(false);
@@ -65,6 +67,8 @@ export function useConversations() {
     return ()=>{mounted.current=false;window.removeEventListener('focus',focus);};
   },[]);
   useEffect(()=>{
+    // 首次发送创建会话后由 send 负责刷新，避免此 effect 清除同一请求的错误。
+    if(active && createdHere.current===active){createdHere.current=null;return;}
     setPage(null);setFailure('');
     if(!active)return;
     setLoading(true);
@@ -101,7 +105,7 @@ export function useConversations() {
 
   function choose(id:string|null) {
     if(sendingRef.current)return;
-    activeRef.current=id;setActive(id);setDraft('');setFailure('');setPending(null);setNotice('');setLoading(false);
+    activeRef.current=id;setActive(id);setDraft('');setFailure('');setPending(null);setNotice('');setLoading(false);setDocumentIds(null);setMode(defaultMode);
   }
   async function send(retry=false) {
     if(sendingRef.current||serverBusy||loading)return;
@@ -120,8 +124,8 @@ export function useConversations() {
       }
       if(!target){
         let cid=activeRef.current;
-        if(!cid){const created=await api.create();cid=created.data.id;activeRef.current=cid;setActive(cid);}
-        target={cid,rid:uid(),payload:{user_input:draft.trim(),mode}};
+        if(!cid){const created=await api.create();cid=created.data.id;createdHere.current=cid;activeRef.current=cid;setActive(cid);}
+        target={cid,rid:uid(),payload:{user_input:draft.trim(),mode,...(mode==='rag'&&documentIds!==null?{document_ids:[...documentIds]}:{})}};
         setPending(target);setDraft('');
       }
       await api.send(target.cid,target.rid,target.payload);
@@ -143,7 +147,7 @@ export function useConversations() {
     }finally{sendingRef.current=false;setSending(false);}
   }
   async function remove(id:string) {
-    if(!window.confirm('删除服务器上的这段对话及摘要？其他设备也将无法查看。'))return;
+    if(!await confirm('删除服务器上的这段对话及摘要？其他设备也将无法查看。'))return;
     try{await api.remove(id);if(active===id)choose(null);await refreshList();}catch(exc){setNotice(reason(exc));}
   }
   async function loadOlder() {
@@ -155,8 +159,10 @@ export function useConversations() {
     }catch(exc){setNotice(reason(exc));}finally{setLoading(false);}
   }
   async function importLegacy() {
-    if(importBusy.current||!window.confirm('将本机旧对话导入服务器？局域网访问设备将能查看，原本机记录会保留。'))return;
-    importBusy.current=true;setImporting(true);
+    if(importBusy.current)return;
+    importBusy.current=true;
+    if(!await confirm('将本机旧对话导入服务器？局域网访问设备将能查看，原本机记录会保留。')){importBusy.current=false;return;}
+    setImporting(true);
     try{
       for(const conversation of legacy.conversations)if(conversation.messages.length)await api.import(conversation);
       await refreshList();setNotice('旧对话导入完成；重复导入不会创建副本。');
@@ -165,7 +171,7 @@ export function useConversations() {
   const messages=page?.conversation.id===active?page.data.flatMap(t=>t.messages):[];
   // 上传请求尚未出现在服务器查询结果中时，仍展示本轮问题。
   if(pending?.cid===active&&!page?.data.some(t=>t.request_id===pending.rid))messages.push({id:pending.rid+'-user',role:'user',text:pending.payload.user_input,mode:pending.payload.mode});
-  return {conversations,active,draft,setDraft,mode,setMode,busy,loading,notice,warning,page,messages,
+  return {conversations,active,draft,setDraft,mode,setMode,documentIds,setDocumentIds,busy,loading,notice,warning,page,messages,
     error,retryTarget,send,choose,remove,loadOlder,importLegacy,importing,legacyCount:legacy.conversations.length,
     nextOffset,loadMore:()=>void refreshList(true).catch(exc=>setNotice(reason(exc))),
     reload:()=>{void refreshList().catch(exc=>setNotice(reason(exc)));if(active)void refresh(active).catch(exc=>setNotice(reason(exc)));}};

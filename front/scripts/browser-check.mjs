@@ -19,7 +19,7 @@ try {
  assert.ok(await page.locator('.message.assistant').count()>=8);
  await page.screenshot({path:new URL('conversations-desktop.png',directory).pathname.replace(/^\/(\w:)/,'$1'),fullPage:true});
  await page.getByText('较早内容已整理为摘要 · 查看摘要',{exact:true}).click();
- await page.getByRole('dialog',{name:'对话摘要'}).waitFor();
+ await page.getByRole('complementary',{name:'对话摘要'}).waitFor();
  assert.ok((await page.locator('.original-text').innerText()).includes('松林计划'));
  await page.screenshot({path:new URL('conversations-summary.png',directory).pathname.replace(/^\/(\w:)/,'$1'),fullPage:true});
  await page.keyboard.press('Escape');

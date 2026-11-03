@@ -18,9 +18,9 @@ export async function request<T>(path: string, init: RequestInit): Promise<T> {
   let body: any;
   try { body = await response.json(); } catch { throw new Error('服务暂时不可用，请检查后端连接。'); }
   if (!response.ok || body.sucess === false) {
-    const labels: Record<number,string> = { 422: '请求参数有误，请检查输入。', 503: '知识库服务尚未就绪，请检查配置或入库报告。', 502: '模型或检索服务暂时不可用，请稍后重试。' };
+    const labels: Record<number,string> = { 422: '请求参数有误，请检查输入。', 503: '服务尚未就绪，请稍后重试。', 502: '上游服务暂时不可用，请稍后重试。' };
     const detail = typeof body.detail === 'string' ? body.detail : undefined;
-    throw new ApiError(labels[response.status] || detail || body.message || '请求失败，请稍后重试。',response.status);
+    throw new ApiError(detail || (typeof body.message === 'string' ? body.message : undefined) || labels[response.status] || '请求失败，请稍后重试。',response.status);
   }
   return body as T;
 }
@@ -45,7 +45,12 @@ export const conversationsApi = {
     })),
   })}),
 };
-export type DocumentRecord = { document_id:string; original_filename:string; status:'queued'|'processing'|'ready'|'failed'; chunk_count:number|null; error:string|null };
+export type DocumentStatus = 'queued'|'processing'|'ready'|'failed';
+export type DocumentRecord = { document_id:string; original_filename:string; status:DocumentStatus; chunk_count:number|null; error:string|null; size_bytes:number; created_at:number; updated_at:number; embedding_dimension:number|null };
+export const documentsApi = {
+  list:()=>request<{data:DocumentRecord[];worker_available:boolean}>('/documents',{method:'GET'}),
+  retry:(id:string)=>request<{data:DocumentRecord}>(`/documents/${encodeURIComponent(id)}/retry`,{method:'POST'}),
+};
 export const upload = (file: File) => { const body = new FormData(); body.append('file', file); return request<{data:DocumentRecord}>('/upload',{method:'POST',body}); };
 // 局域网 HTTP 不是安全上下文，不能依赖 randomUUID()。
 export const uid = () => crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), b=>b.toString(16).padStart(2,'0')).join('');

@@ -6,6 +6,5 @@ __pycache__/
 logs/
 data/
 output/
-tests/
 src/rag/storage/
 .pytest_cache/

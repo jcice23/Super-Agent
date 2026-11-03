@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
             app.state.conversation_chat = None
 
 
-app = FastAPI(title="个人助手聊天 API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Super Assintant API", version="1.0.0", lifespan=lifespan)
 app.include_router(chat_router)
 app.include_router(upload_router)
 app.include_router(conversations_router)
